@@ -33,6 +33,75 @@ jobs:
           test -f settings.gradle.kts
           test -f app/build.gradle.kts
 
+      - name: Fix Kotlin source
+        run: |
+          set -e
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # Fix MaskView.kt:
+          # ByteArray hanya menerima nilai Byte, bukan Int.
+          mask = Path(
+              "app/src/main/java/com/fotorapi/offline/MaskView.kt"
+          )
+
+          s = mask.read_text()
+
+          old_mask = (
+              "out[i] = if ((pixels[i].toInt() and 0xFF) > 20) 0 else 255"
+          )
+
+          new_mask = (
+              "out[i] = if ((pixels[i].toInt() and 0xFF) > 20) "
+              "0.toByte() else 255.toByte()"
+          )
+
+          if old_mask in s:
+              s = s.replace(old_mask, new_mask)
+
+          mask.write_text(s)
+
+          # Fix MiganInpainter.kt:
+          # findEraseBounds() mengembalikan IntArray,
+          # jadi gunakan indeks [0] sampai [3].
+          migan = Path(
+              "app/src/main/java/com/fotorapi/offline/MiganInpainter.kt"
+          )
+
+          s = migan.read_text()
+
+          s = s.replace(
+              "erase.first",
+              "erase[0]"
+          )
+
+          s = s.replace(
+              "erase.second",
+              "erase[1]"
+          )
+
+          s = s.replace(
+              "erase.third",
+              "erase[2]"
+          )
+
+          s = s.replace(
+              "erase.fourth",
+              "erase[3]"
+          )
+
+          migan.write_text(s)
+          PY
+
+          echo "Kotlin source fixes applied."
+
+          grep -n "out\\[i\\]" \
+            app/src/main/java/com/fotorapi/offline/MaskView.kt || true
+
+          grep -n "tileStarts" \
+            app/src/main/java/com/fotorapi/offline/MiganInpainter.kt || true
+
       - name: Download MI-GAN model
         run: |
           set -e
