@@ -25,13 +25,111 @@ jobs:
           if [ -f /tmp/fotorapi/settings.gradle.kts ]; then
             cp -a /tmp/fotorapi/. .
           else
-            PROJECT_DIR=$(find /tmp/fotorapi -name settings.gradle.kts -type f -print -quit | xargs dirname)
+            PROJECT_DIR=$(find /tmp/fotorapi \
+              -name settings.gradle.kts \
+              -type f \
+              -print -quit | xargs dirname)
+
             test -n "$PROJECT_DIR"
+
             cp -a "$PROJECT_DIR"/. .
           fi
 
           test -f settings.gradle.kts
           test -f app/build.gradle.kts
+
+      - name: Fix Kotlin source
+        run: |
+          set -e
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # -----------------------------------------
+          # Fix MaskView.kt
+          # ByteArray harus menerima Byte, bukan Int
+          # -----------------------------------------
+
+          mask = Path(
+              "app/src/main/java/com/fotorapi/offline/MaskView.kt"
+          )
+
+          s = mask.read_text()
+
+          old = (
+              "out[i] = if ((pixels[i].toInt() and 0xFF) > 20) 0 else 255"
+          )
+
+          new = (
+              "out[i] = if ((pixels[i].toInt() and 0xFF) > 20) "
+              "0.toByte() else 255.toByte()"
+          )
+
+          if old in s:
+              s = s.replace(old, new)
+
+          mask.write_text(s)
+
+          # -----------------------------------------
+          # Fix MiganInpainter.kt
+          # IntArray memakai index [0]...[3]
+          # -----------------------------------------
+
+          migan = Path(
+              "app/src/main/java/com/fotorapi/offline/MiganInpainter.kt"
+          )
+
+          s = migan.read_text()
+
+          s = s.replace("erase.first", "erase[0]")
+          s = s.replace("erase.second", "erase[1]")
+          s = s.replace("erase.third", "erase[2]")
+          s = s.replace("erase.fourth", "erase[3]")
+
+          # -----------------------------------------
+          # Fix output MI-GAN
+          #
+          # Output = [1,3,512,512]
+          # channel 0 = R
+          # channel 1 = G
+          # channel 2 = B
+          # -----------------------------------------
+
+          s = s.replace(
+              "val r = ((output[plane + i] + 1f)",
+              "val r = ((output[i] + 1f)"
+          )
+
+          s = s.replace(
+              "val g = ((output[2 * plane + i] + 1f)",
+              "val g = ((output[plane + i] + 1f)"
+          )
+
+          s = s.replace(
+              "val b = ((output[3 * plane + i] + 1f)",
+              "val b = ((output[2 * plane + i] + 1f)"
+          )
+
+          migan.write_text(s)
+          PY
+
+          echo "=== MaskView check ==="
+          grep -n "out\\[i\\]" \
+            app/src/main/java/com/fotorapi/offline/MaskView.kt || true
+
+          echo "=== MI-GAN tile check ==="
+          grep -n "tileStarts" \
+            app/src/main/java/com/fotorapi/offline/MiganInpainter.kt || true
+
+          echo "=== MI-GAN output check ==="
+          grep -n "val r =" \
+            app/src/main/java/com/fotorapi/offline/MiganInpainter.kt || true
+
+          grep -n "val g =" \
+            app/src/main/java/com/fotorapi/offline/MiganInpainter.kt || true
+
+          grep -n "val b =" \
+            app/src/main/java/com/fotorapi/offline/MiganInpainter.kt || true
 
       - name: Download MI-GAN model
         run: |
@@ -39,7 +137,10 @@ jobs:
 
           mkdir -p app/src/main/assets
 
-          curl -L --fail --retry 3 --retry-all-errors \
+          curl -L \
+            --fail \
+            --retry 3 \
+            --retry-all-errors \
             "https://huggingface.co/litert-community/MI-GAN-512-Places2-LiteRT/resolve/main/migan_fp16.tflite?download=true" \
             -o app/src/main/assets/migan_fp16.tflite
 
