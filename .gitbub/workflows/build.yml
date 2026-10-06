@@ -11,21 +11,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract project
+      - name: Extract v2 project
         run: |
           set -e
 
-          test -f FotoRapiAI-Offline-clean.zip
+          test -f FotoRapiAI-Offline-v2.zip
 
-          rm -rf /tmp/fotorapi
-          mkdir -p /tmp/fotorapi
+          rm -rf /tmp/fotorapi-v2
+          mkdir -p /tmp/fotorapi-v2
 
-          unzip -q FotoRapiAI-Offline-clean.zip -d /tmp/fotorapi
+          unzip -q FotoRapiAI-Offline-v2.zip -d /tmp/fotorapi-v2
 
-          if [ -f /tmp/fotorapi/settings.gradle.kts ]; then
-            cp -a /tmp/fotorapi/. .
+          if [ -f /tmp/fotorapi-v2/settings.gradle.kts ]; then
+            cp -a /tmp/fotorapi-v2/. .
           else
-            PROJECT_DIR=$(find /tmp/fotorapi \
+            PROJECT_DIR=$(find /tmp/fotorapi-v2 \
               -name settings.gradle.kts \
               -type f \
               -print -quit | xargs dirname)
@@ -38,6 +38,8 @@ jobs:
           test -f settings.gradle.kts
           test -f app/build.gradle.kts
 
+          echo "v2 project extracted successfully."
+
       - name: Fix Kotlin source
         run: |
           set -e
@@ -47,7 +49,6 @@ jobs:
 
           # -----------------------------------------
           # Fix MaskView.kt
-          # ByteArray harus menerima Byte, bukan Int
           # -----------------------------------------
 
           mask = Path(
@@ -56,23 +57,15 @@ jobs:
 
           s = mask.read_text()
 
-          old = (
-              "out[i] = if ((pixels[i].toInt() and 0xFF) > 20) 0 else 255"
+          s = s.replace(
+              "out[i] = if ((pixels[i].toInt() and 0xFF) > 20) 0 else 255",
+              "out[i] = if ((pixels[i].toInt() and 0xFF) > 20) 0.toByte() else 255.toByte()"
           )
-
-          new = (
-              "out[i] = if ((pixels[i].toInt() and 0xFF) > 20) "
-              "0.toByte() else 255.toByte()"
-          )
-
-          if old in s:
-              s = s.replace(old, new)
 
           mask.write_text(s)
 
           # -----------------------------------------
           # Fix MiganInpainter.kt
-          # IntArray memakai index [0]...[3]
           # -----------------------------------------
 
           migan = Path(
@@ -87,9 +80,8 @@ jobs:
           s = s.replace("erase.fourth", "erase[3]")
 
           # -----------------------------------------
-          # Fix output MI-GAN
-          #
-          # Output = [1,3,512,512]
+          # MI-GAN output:
+          # [1, 3, 512, 512]
           # channel 0 = R
           # channel 1 = G
           # channel 2 = B
@@ -113,23 +105,7 @@ jobs:
           migan.write_text(s)
           PY
 
-          echo "=== MaskView check ==="
-          grep -n "out\\[i\\]" \
-            app/src/main/java/com/fotorapi/offline/MaskView.kt || true
-
-          echo "=== MI-GAN tile check ==="
-          grep -n "tileStarts" \
-            app/src/main/java/com/fotorapi/offline/MiganInpainter.kt || true
-
-          echo "=== MI-GAN output check ==="
-          grep -n "val r =" \
-            app/src/main/java/com/fotorapi/offline/MiganInpainter.kt || true
-
-          grep -n "val g =" \
-            app/src/main/java/com/fotorapi/offline/MiganInpainter.kt || true
-
-          grep -n "val b =" \
-            app/src/main/java/com/fotorapi/offline/MiganInpainter.kt || true
+          echo "Kotlin fixes applied."
 
       - name: Download MI-GAN model
         run: |
@@ -166,7 +142,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FotoRapiAI-Offline-APK
+          name: FotoRapiAI-Offline-v2-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
